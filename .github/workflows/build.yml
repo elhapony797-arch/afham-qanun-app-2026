@@ -24,6 +24,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: ""
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -61,21 +62,22 @@ jobs:
         run: |
           rm -rf .buildozer
           rm -rf ~/.buildozer
-
-      - name: Configure Android licenses
-        run: |
-          sed -i \
-            's/^# *android.accept_sdk_license *=.*/android.accept_sdk_license = True/' \
-            buildozer.spec
+          rm -rf bin
 
       - name: Verify configuration
         run: |
-          echo "Checking buildozer.spec"
-          grep -E "^(requirements|android.api|android.minapi|android.archs|android.accept_sdk_license)" buildozer.spec
+          echo "Checking Android configuration"
+          grep -E "^(requirements|android.api|android.minapi|android.ndk_api|android.archs)" buildozer.spec
+
+          grep -q "^android.minapi = 24$" buildozer.spec
+          grep -q "^android.ndk_api = 24$" buildozer.spec
+
           echo "Checking Python"
           python --version
+
           echo "Checking Java"
           java -version
+
           echo "Checking Buildozer"
           buildozer --version
 
