@@ -1,4 +1,4 @@
-
+      
 name: Build Android APK
 
 on:
@@ -11,6 +11,10 @@ jobs:
   build:
     runs-on: ubuntu-22.04
 
+    env:
+      PYTHONUNBUFFERED: "1"
+      P4A_RELEASE: "0"
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -18,20 +22,54 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            git zip unzip \
+            build-essential \
+            autoconf automake libtool \
+            libltdl-dev \
+            pkg-config \
+            zlib1g-dev \
+            libncurses5-dev \
+            libncursesw5-dev \
+            libffi-dev \
+            libssl-dev
 
       - name: Install Buildozer
         run: |
-          sudo apt-get update
-          sudo apt-get install -y git zip unzip openjdk-17-jdk
-          sudo apt-get install -y build-essential autoconf automake libtool libltdl-dev
-          pip install --upgrade pip
+          python -m pip install --upgrade pip setuptools
           pip install buildozer cython==0.29.36
 
-      - name: Accept Android SDK licenses
+      - name: Configure Android licenses
         run: |
-          sed -i 's/^#\?android.accept_sdk_license =.*/android.accept_sdk_license = True/' buildozer.spec
+          grep -n "android.accept_sdk_license" buildozer.spec
+          sed -i \
+            's/^# *android.accept_sdk_license *=.*/android.accept_sdk_license = True/' \
+            buildozer.spec
+
+      - name: Verify configuration
+        run: |
+          grep "android.accept_sdk_license" buildozer.spec
+          buildozer --version
 
       - name: Build APK
         run: |
           buildozer -v android debug
+
+      - name: Upload APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: afham-qanun-apk
+          path: bin/*.apk
+          if-no-files-found: error
