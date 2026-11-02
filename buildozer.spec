@@ -6,7 +6,7 @@ package.name = afhamqanun
 package.domain = org.elhapony
 
 source.dir = .
-source.include_exts = py,db,png,jpg,kv,ttf,json
+source.include_exts = py,db,png,jpg,jpeg,kv,ttf,json
 
 version = 1.0
 
@@ -17,12 +17,14 @@ fullscreen = 0
 
 android.permissions = INTERNET
 
-android.api = 35
-android.minapi = 24
-android.ndk_api = 24
+android.api = 33
+android.minapi = 21
+android.ndk = 25b
 android.archs = arm64-v8a
 
 android.accept_sdk_license = True
+
+android.allow_backup = True
 
 [buildozer]
 
