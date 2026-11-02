@@ -14,7 +14,7 @@ jobs:
 
     env:
       PYTHONUNBUFFERED: "1"
-      P4A_RELEASE: "0"
+      PIP_NO_CACHE_DIR: "1"
 
     steps:
       - name: Checkout repository
@@ -24,7 +24,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: ""
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -56,7 +55,7 @@ jobs:
       - name: Install Buildozer
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          pip install buildozer cython==0.29.36
+          python -m pip install buildozer==1.5.0 cython==0.29.36
 
       - name: Clean previous build
         run: |
@@ -66,12 +65,6 @@ jobs:
 
       - name: Verify configuration
         run: |
-          echo "Checking Android configuration"
-          grep -E "^(requirements|android.api|android.minapi|android.ndk_api|android.archs)" buildozer.spec
-
-          grep -q "^android.minapi = 24$" buildozer.spec
-          grep -q "^android.ndk_api = 24$" buildozer.spec
-
           echo "Checking Python"
           python --version
 
@@ -80,6 +73,17 @@ jobs:
 
           echo "Checking Buildozer"
           buildozer --version
+
+          echo "Checking buildozer.spec"
+          grep -E "^(requirements|android.api|android.minapi|android.ndk|android.archs|p4a.branch|android.accept_sdk_license)" buildozer.spec
+
+          grep -q "^android.api = 33$" buildozer.spec
+          grep -q "^android.minapi = 24$" buildozer.spec
+          grep -q "^android.ndk = 25b$" buildozer.spec
+          grep -q "^android.archs = arm64-v8a$" buildozer.spec
+          grep -q "^p4a.branch = v2024.01.21$" buildozer.spec
+
+          echo "Configuration verified"
 
       - name: Build APK
         run: |
@@ -94,10 +98,12 @@ jobs:
           path: bin/*.apk
           if-no-files-found: error
 
-      - name: Upload build log
+      - name: Upload build logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: afham-qanun-build-log
-          path: build.log
+          name: afham-qanun-build-logs
+          path: |
+            build.log
+            .buildozer/logs/**
           if-no-files-found: ignore
