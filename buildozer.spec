@@ -1,7 +1,6 @@
-
 [app]
 
-title = افهم قانون
+title = AfhamQanun
 package.name = afhamqanun
 package.domain = org.elhapony
 
@@ -21,6 +20,8 @@ android.api = 33
 android.minapi = 24
 android.ndk = 25b
 android.archs = arm64-v8a
+android.enable_androidx = True
+android.allow_backup = True
 
 android.accept_sdk_license = True
 
