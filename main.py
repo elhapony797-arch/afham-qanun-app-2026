@@ -82,4 +82,119 @@ class LegalApp(App):
         grid = GridLayout(cols=2, size_hint_y=None, height=190, spacing=6)
         for i, name in enumerate(MODES):
             b = ToggleButton(
-                text=ar(name), group="mode", allow_no_selection=Fals
+                text=ar(name), group="mode", allow_no_selection=False,
+                state="down" if i == 0 else "normal",
+                font_name=self.font, font_size=28,
+            )
+            b.bind(on_release=lambda inst, n=name: setattr(self, "mode_name", n))
+            grid.add_widget(b)
+        root.add_widget(grid)
+
+        self.country = TextInput(
+            hint_text="Country / Law (ex: Libya)", multiline=False,
+            size_hint_y=None, height=90, font_name=self.font,
+        )
+        root.add_widget(self.country)
+
+        self.q_input = TextInput(
+            hint_text="Question / Text", size_hint_y=None, height=280,
+            font_name=self.font,
+        )
+        root.add_widget(self.q_input)
+
+        self.btn = Button(
+            text=ar("ابحث"), size_hint_y=None, height=110,
+            font_size=34, font_name=self.font,
+        )
+        self.btn.bind(on_release=self.ask)
+        root.add_widget(self.btn)
+
+        self.answer = Label(
+            text="", size_hint_y=None, halign="right", valign="top",
+            font_size=28, font_name=self.font,
+        )
+        self.answer.bind(
+            width=lambda *a: setattr(self.answer, "text_size", (self.answer.width, None)),
+            texture_size=lambda *a: setattr(
+                self.answer, "height", self.answer.texture_size[1] + 30),
+        )
+        scroll = ScrollView()
+        scroll.add_widget(self.answer)
+        root.add_widget(scroll)
+        return root
+
+    def load_key(self):
+        try:
+            with open(self.key_file) as f:
+                return json.load(f).get("key", "")
+        except Exception:
+            return ""
+
+    def save_key(self, key):
+        try:
+            os.makedirs(self.user_data_dir, exist_ok=True)
+            with open(self.key_file, "w") as f:
+                json.dump({"key": key}, f)
+        except Exception:
+            pass
+
+    def show(self, text):
+        self.answer.text = ar(text)
+
+    def ask(self, *args):
+        key = self.key_input.text.strip()
+        question = self.q_input.text.strip()
+        if not key:
+            return self.show("أدخل مفتاح API أولًا")
+        if not question:
+            return self.show("اكتب سؤالك أو النص أولًا")
+        self.save_key(key)
+
+        system = MODES[self.mode_name]
+        country = self.country.text.strip()
+        if country:
+            system += " النظام القانوني المعني: " + country + "."
+
+        self.btn.disabled = True
+        self.show("جارٍ البحث...")
+        threading.Thread(
+            target=self.worker, args=(key, system, question), daemon=True
+        ).start()
+
+    def worker(self, key, system, question):
+        try:
+            r = requests.post(
+                API_URL,
+                headers={
+                    "content-type": "application/json",
+                    "x-api-key": key,
+                    "anthropic-version": "2023-06-01",
+                },
+                json={
+                    "model": MODEL,
+                    "max_tokens": 2000,
+                    "system": system,
+                    "messages": [{"role": "user", "content": question}],
+                },
+                timeout=90,
+                verify=certifi.where(),
+            )
+            try:
+                data = r.json()
+            except Exception:
+                data = {}
+            if r.status_code == 200:
+                text = data["content"][0]["text"] + FOOTER
+            else:
+                detail = data.get("error", {}).get("message", "")
+                text = "خطأ %d: %s" % (r.status_code, detail)
+        except Exception as e:
+            text = "تعذّر الاتصال:\n" + repr(e)
+        Clock.schedule_once(lambda dt: self.done(text))
+
+    def done(self, text):
+        self.btn.disabled = False
+        self.show(text)
+
+
+LegalApp().run()
