@@ -1,7 +1,7 @@
 [app]
 
 title = Alhabouni
-package.name = alhabouni
+package.name = alhabouni2
 package.domain = org.elhapony
 
 source.dir = .
