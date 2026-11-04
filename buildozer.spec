@@ -9,7 +9,7 @@ source.include_exts = py,png,jpg,jpeg,kv,ttf,json
 
 version = 1.0
 
-requirements = python3,kivy==2.3.0,arabic-reshaper==3.0.1,python-bidi==0.4.2,openssl,certifi
+requirements = python3,kivy==2.3.0,arabic-reshaper==3.0.1,python-bidi==0.4.2,openssl,requests,urllib3,chardet,idna,certifi
 
 orientation = portrait
 fullscreen = 0
