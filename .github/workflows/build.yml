@@ -64,32 +64,27 @@ jobs:
 
       - name: Download Arabic font
         run: |
-          curl -L -o font.ttf "https://github.com/google/fonts/raw/main/ofl/cairo/Cairo%5Bslnt%2Cwght%5D.ttf" || true
-          if [ ! -s font.ttf ]; then
-            curl -L -o font.ttf "https://github.com/notofonts/arabic/raw/main/fonts/NotoNaskhArabic/hinted/ttf/NotoNaskhArabic-Regular.ttf"
-          fi
+          rm -f font.ttf
+          for url in \
+            "https://github.com/google/fonts/raw/main/ofl/amiri/Amiri-Regular.ttf" \
+            "https://github.com/google/fonts/raw/main/ofl/tajawal/Tajawal-Regular.ttf"; do
+            curl -fL -o font.ttf "$url" || true
+            if [ -s font.ttf ] && [ "$(stat -c%s font.ttf)" -gt 50000 ]; then
+              break
+            fi
+            rm -f font.ttf
+          done
           ls -l font.ttf
+          test -s font.ttf
 
       - name: Verify configuration
         run: |
-          echo "Checking Python"
-          python --version
-
-          echo "Checking Java"
-          java -version
-
-          echo "Checking Buildozer"
           buildozer --version
-
-          echo "Checking buildozer.spec"
-          grep -E "^(requirements|android.api|android.minapi|android.ndk|android.archs|p4a.branch|android.accept_sdk_license)" buildozer.spec
-
           grep -q "^android.api = 33$" buildozer.spec
           grep -q "^android.minapi = 24$" buildozer.spec
           grep -q "^android.ndk = 25b$" buildozer.spec
           grep -q "^android.archs = armeabi-v7a$" buildozer.spec
           grep -q "^p4a.branch = v2024.01.21$" buildozer.spec
-
           echo "Configuration verified"
 
       - name: Build APK
