@@ -1,15 +1,15 @@
 [app]
 
-title = AfhamQanun
-package.name = afhamqanun
+title = Alhabouni
+package.name = alhabouni
 package.domain = org.elhapony
 
 source.dir = .
-source.include_exts = py,db,png,jpg,jpeg,kv,ttf,json
+source.include_exts = py,png,jpg,jpeg,kv,ttf,json
 
 version = 1.0
 
-requirements = python3,kivy==2.3.0,arabic-reshaper==3.0.1,python-bidi==0.4.2
+requirements = python3,kivy==2.3.0,arabic-reshaper==3.0.1,python-bidi==0.4.2,openssl,certifi
 
 orientation = portrait
 fullscreen = 0
@@ -19,7 +19,7 @@ android.permissions = INTERNET
 android.api = 33
 android.minapi = 24
 android.ndk = 25b
-android.archs = arm64-v8a, armeabi-v7a
+android.archs = armeabi-v7a
 android.enable_androidx = True
 android.allow_backup = True
 
