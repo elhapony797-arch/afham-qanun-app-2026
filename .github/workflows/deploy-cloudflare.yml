@@ -21,4 +21,4 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: deploy worker.js --name elhaponi-app
+          command: deploy worker.js --name elhaponi-app --compatibility-date 2026-11-04
