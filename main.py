@@ -1,3 +1,4 @@
+
 import os
 import textwrap
 import threading
@@ -109,20 +110,29 @@ class LegalApp(App):
 
         root.add_widget(grid)
 
+        # خانة الدولة: كتابة عربية من اليمين إلى اليسار
         self.country = TextInput(
-            hint_text="Country / Law (ex: Libya)",
+            hint_text="اكتب الدولة أو القانون",
             multiline=False,
             size_hint_y=None,
             height=90,
             font_name=self.font,
+            halign="right",
+            base_direction="rtl",
+            text_language="ar",
         )
         root.add_widget(self.country)
 
+        # خانة السؤال: كتابة عربية من اليمين إلى اليسار
         self.q_input = TextInput(
-            hint_text="Question / Text",
+            hint_text="اكتب سؤالك أو النص القانوني هنا",
+            multiline=True,
             size_hint_y=None,
             height=280,
             font_name=self.font,
+            halign="right",
+            base_direction="rtl",
+            text_language="ar",
         )
         root.add_widget(self.q_input)
 
