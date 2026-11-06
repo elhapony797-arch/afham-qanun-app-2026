@@ -1,3 +1,4 @@
+
 name: Build Android APK
 
 on:
@@ -34,7 +35,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            git zip unzip \
+            git zip unzip ant \
             build-essential \
             autoconf automake libtool \
             libltdl-dev \
@@ -56,6 +57,31 @@ jobs:
           python -m pip install --upgrade pip setuptools wheel
           python -m pip install buildozer==1.5.0 cython==0.29.36
 
+      - name: Configure Apache Ant
+        run: |
+          ant -version
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("buildozer.spec")
+          lines = path.read_text().splitlines()
+
+          lines = [
+              line for line in lines
+              if not line.strip().startswith("android.ant_path")
+          ]
+
+          app_index = next(
+              i for i, line in enumerate(lines)
+              if line.strip() == "[app]"
+          )
+
+          lines.insert(app_index + 1, "android.ant_path = /usr")
+          path.write_text("\n".join(lines) + "\n")
+
+          print("Apache Ant configured successfully")
+          PY
+
       - name: Clean previous build
         run: |
           rm -rf .buildozer
@@ -74,12 +100,14 @@ jobs:
             fi
             rm -f font.ttf
           done
-          ls -l font.ttf
           test -s font.ttf
+          ls -lh font.ttf
 
       - name: Verify configuration
         run: |
           buildozer --version
+          ant -version
+          grep -q "^android.ant_path = /usr$" buildozer.spec
           grep -q "^android.api = 33$" buildozer.spec
           grep -q "^android.minapi = 24$" buildozer.spec
           grep -q "^android.ndk = 25b$" buildozer.spec
