@@ -7,6 +7,9 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-22.04
@@ -26,7 +29,7 @@ jobs:
           python-version: "3.11"
 
       - name: Set up Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
@@ -34,8 +37,9 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
+
           sudo apt-get install -y \
-            git zip unzip ant \
+            git zip unzip curl wget ant \
             build-essential \
             autoconf automake libtool \
             libltdl-dev \
@@ -52,19 +56,42 @@ jobs:
             libreadline-dev \
             autopoint gettext
 
+      - name: Verify Java and Ant
+        run: |
+          java -version
+          javac -version
+          ant -version
+
+          echo "ANT executable:"
+          command -v ant
+
+          echo "ANT directory:"
+          ls -la /usr/bin/ant
+
+          test -x /usr/bin/ant
+
       - name: Install Buildozer
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          python -m pip install buildozer==1.5.0 cython==0.29.36
 
-      - name: Configure Apache Ant
+          python -m pip install \
+            buildozer==1.5.0 \
+            cython==0.29.36
+
+          buildozer --version
+          cython --version
+
+      - name: Configure Buildozer
         run: |
-          ant -version
           python - <<'PY'
           from pathlib import Path
 
           path = Path("buildozer.spec")
-          lines = path.read_text().splitlines()
+
+          if not path.exists():
+              raise SystemExit("ERROR: buildozer.spec not found")
+
+          lines = path.read_text(encoding="utf-8").splitlines()
 
           lines = [
               line for line in lines
@@ -72,53 +99,101 @@ jobs:
           ]
 
           app_index = next(
-              i for i, line in enumerate(lines)
-              if line.strip() == "[app]"
+              (i for i, line in enumerate(lines)
+               if line.strip() == "[app]"),
+              None
           )
 
-          lines.insert(app_index + 1, "android.ant_path = /usr")
-          path.write_text("\n".join(lines) + "\n")
+          if app_index is None:
+              raise SystemExit("ERROR: [app] section not found")
 
-          print("Apache Ant configured successfully")
+          lines.insert(
+              app_index + 1,
+              "android.ant_path = /usr"
+          )
+
+          path.write_text(
+              "\n".join(lines) + "\n",
+              encoding="utf-8"
+          )
+
+          print("Apache Ant configured at /usr")
           PY
+
+          grep "^android.ant_path" buildozer.spec
 
       - name: Clean previous build
         run: |
           rm -rf .buildozer
-          rm -rf ~/.buildozer
+          rm -rf "$HOME/.buildozer"
           rm -rf bin
+
+          mkdir -p bin
 
       - name: Download Arabic font
         run: |
           rm -f font.ttf
+
           for url in \
             "https://github.com/google/fonts/raw/main/ofl/amiri/Amiri-Regular.ttf" \
-            "https://github.com/google/fonts/raw/main/ofl/tajawal/Tajawal-Regular.ttf"; do
-            curl -fL -o font.ttf "$url" || true
-            if [ -s font.ttf ] && [ "$(stat -c%s font.ttf)" -gt 50000 ]; then
-              break
+            "https://github.com/google/fonts/raw/main/ofl/tajawal/Tajawal-Regular.ttf"
+          do
+            if curl --retry 3 --retry-delay 2 \
+              -fL "$url" -o font.ttf; then
+
+              if [ -s font.ttf ] && \
+                [ "$(stat -c%s font.ttf)" -gt 50000 ]; then
+                break
+              fi
             fi
+
             rm -f font.ttf
           done
-          test -s font.ttf
+
+          if [ ! -s font.ttf ]; then
+            echo "ERROR: Arabic font download failed"
+            exit 1
+          fi
+
           ls -lh font.ttf
 
       - name: Verify configuration
         run: |
+          set -e
+
           buildozer --version
           ant -version
+
           grep -q "^android.ant_path = /usr$" buildozer.spec
           grep -q "^android.api = 33$" buildozer.spec
           grep -q "^android.minapi = 24$" buildozer.spec
           grep -q "^android.ndk = 25b$" buildozer.spec
           grep -q "^android.archs = armeabi-v7a$" buildozer.spec
           grep -q "^p4a.branch = v2024.01.21$" buildozer.spec
-          echo "Configuration verified"
 
-      - name: Build APK
+          test -x /usr/bin/ant
+          test -s font.ttf
+
+          echo "All configuration checks passed"
+
+      - name: Build Android APK
         run: |
           set -o pipefail
+
           buildozer -v android debug 2>&1 | tee build.log
+
+      - name: Verify APK
+        if: success()
+        run: |
+          set -e
+
+          echo "Checking generated APK..."
+
+          ls -lh bin/*.apk
+
+          test -n "$(find bin -maxdepth 1 -name '*.apk' -print -quit)"
+
+          echo "APK generated successfully"
 
       - name: Upload APK
         if: success()
@@ -127,6 +202,7 @@ jobs:
           name: afham-qanun-apk
           path: bin/*.apk
           if-no-files-found: error
+          retention-days: 14
 
       - name: Upload build logs
         if: always()
@@ -137,3 +213,4 @@ jobs:
             build.log
             .buildozer/logs/**
           if-no-files-found: ignore
+          retention-days: 7
