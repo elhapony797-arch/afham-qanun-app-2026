@@ -162,6 +162,16 @@ jobs:
 
           ls -lh font.ttf
 
+      - name: Make logo, patch app, set icon
+        run: |
+          python -m pip install pillow numpy
+          python make_logo.py
+          python patch_main.py
+          ls -lh icon.png logo.png
+          grep -q "^icon.filename" buildozer.spec || sed -i '/^\[app\]/a icon.filename = %(source.dir)s/icon.png' buildozer.spec
+          sed -i '/^source.include_exts/ { /png/! s/$/,png/ }' buildozer.spec
+          grep -E "^(icon.filename|source.include_exts)" buildozer.spec
+
       - name: Verify configuration
         run: |
           set -e
