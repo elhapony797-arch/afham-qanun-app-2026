@@ -23,10 +23,6 @@ from kivy.uix.scrollview import ScrollView
 from kivy.uix.textinput import TextInput
 from kivy.uix.togglebutton import ToggleButton
 
-# ---------------------------------------------------------------
-# استيراد المكتبات الخارجية بحماية: إن نقصت مكتبة يظهر تنبيه
-# على الشاشة بدل أن ينهار التطبيق عند الإقلاع.
-# ---------------------------------------------------------------
 try:
     import arabic_reshaper
     from bidi.algorithm import get_display
@@ -53,15 +49,16 @@ API_URL = "https://elhaponi-app.elhaponyabdo66.workers.dev/"
 FONT = "font.ttf"
 HISTORY_LIMIT = 30
 
+MIN_GAP = 5
+MAX_TRIES = 4
+RETRY_CODES = (429, 500, 502, 503, 504)
+
 GOLD = (0.9, 0.75, 0.3, 1)
 MUTED = (0.7, 0.7, 0.75, 1)
 GREEN = (0.5, 0.85, 0.5, 1)
 RED = (0.95, 0.45, 0.45, 1)
 WHITE = (1, 1, 1, 1)
 
-# ---------------------------------------------------------------
-# التعليمة الأساسية: المشرف يوجّه الطالب ولا يكتب الرسالة بدلًا عنه
-# ---------------------------------------------------------------
 SYSTEM_BASE = (
     "أنت مشرف أكاديمي متخصص في الدراسات القانونية العليا، "
     "تساعد طالبًا يعدّ رسالة ماجستير أو دكتوراه. "
@@ -73,11 +70,12 @@ SYSTEM_BASE = (
     "اكتب بالعربية الفصحى السليمة وبعلامات الترقيم العربية (، ؛ ؟). "
     "اكتب إحالات المواد هكذا: المادة (12) من القانون المدني. "
     "إذا ذكرت مصطلحًا أجنبيًا فاجعله بين قوسين مرة واحدة فقط بعد المقابل العربي. "
-    "اجعل الرد منظمًا بعناوين قصيرة وفقرات واضحة، "
-    "ولا تستخدم رموز التنسيق مثل ** أو # أو ` لأن الشاشة تعرض نصًا عاديًا."
+    "اجعل الرد منظمًا مثل تطبيقات المحادثة: ابدأ بجواب مباشر في سطرين، "
+    "ثم عناوين فرعية قصيرة يبدأ كل منها بـ ## ، ثم نقاط يبدأ كل منها بـ - "
+    "وكل نقطة سطر أو سطران. كن مختصرًا قدر الإمكان. "
+    "لا تستخدم ** ولا ` ولا جداول."
 )
 
-# مراحل إعداد الرسالة
 MODES = {
     "اقتراح إشكالية": (
         "اقترح ثلاث إشكاليات بحثية قابلة للدراسة في الموضوع المذكور، "
@@ -127,14 +125,12 @@ FOOTER = (
     "الأصلية قبل اعتماد أي معلومة في رسالتك."
 )
 
-# مستويات خطة الرسالة
 PLAN_LEVELS = {1: "الفصل", 2: "المبحث", 3: "المطلب"}
 ORDINALS = [
     "الأول", "الثاني", "الثالث", "الرابع", "الخامس",
     "السادس", "السابع", "الثامن", "التاسع", "العاشر",
 ]
 
-# أنواع المراجع وتلميحات حقولها
 REF_TYPES = [
     ("book", "كتاب"),
     ("article", "مقال أو بحث"),
@@ -171,14 +167,6 @@ DEFAULT_TASKS = [
 ]
 
 
-# ===============================================================
-# معالجة النص العربي
-# ---------------------------------------------------------------
-# القاعدة الذهبية:
-#   * النص "المنطقي" (الأصلي) هو الذي يُخزَّن ويُنسخ ويُرسل للخادم.
-#   * النص "البصري" (بعد التشكيل وقلب الاتجاه) للعرض فقط، ولا يُحفظ.
-# ===============================================================
-
 _RESHAPER = None
 if HAS_AR:
     try:
@@ -190,7 +178,6 @@ if HAS_AR:
     except Exception:
         _RESHAPER = None
 
-# محارف التحكم بالاتجاه التي تُفسد التقطيع عند اللصق من Word وغيره
 _BIDI_CONTROLS = re.compile("[\u200e\u200f\u202a-\u202e\u2066-\u2069\ufeff]")
 _DIGITS = str.maketrans(
     "٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789")
@@ -204,14 +191,12 @@ def norm_digits(text):
 
 
 def sanitize_input(text):
-    """تنظيف النص الذي يكتبه الطالب قبل إرساله."""
     text = _BIDI_CONTROLS.sub("", str(text))
-    text = text.replace("\u0640", "")  # حذف التطويل (ـ)
+    text = text.replace("\u0640", "")
     return text.strip()
 
 
 def clean_markdown(text):
-    """تحويل رموز Markdown إلى نص عادي مناسب للشاشة."""
     out = []
     for line in str(text).split("\n"):
         s = line.strip()
@@ -223,8 +208,26 @@ def clean_markdown(text):
     return "\n".join(out)
 
 
+def parse_blocks(text):
+    blocks = []
+    for line in str(text).split("\n"):
+        s = line.strip()
+        if not s:
+            continue
+        s = s.replace("**", "").replace("__", "").replace("`", "")
+        m = re.match(r"^#{1,6}\s*(.+)", s)
+        if m:
+            blocks.append(("h", m.group(1)))
+            continue
+        m = re.match(r"^[\*\-•]\s+(.+)", s)
+        if m:
+            blocks.append(("b", m.group(1)))
+            continue
+        blocks.append(("p", s))
+    return blocks
+
+
 def shape(line):
-    """سطر واحد: تشكيل الحروف ثم ترتيبها بصريًا مع اتجاه أساسي RTL."""
     if not line or not HAS_AR:
         return line
     try:
@@ -251,11 +254,6 @@ def _measure(text, font_size):
 
 
 def wrap_logical(paragraph, max_px, font_size):
-    """
-    تقطيع فقرة على مستوى الكلمات حسب العرض الفعلي بالبكسل.
-    التقطيع يتم على النص المنطقي، ثم يُشكَّل كل سطر على حدة،
-    فلا تنكسر الكلمات ولا يختل ترتيب الأسطر.
-    """
     words = paragraph.split()
     if not words:
         return [""]
@@ -273,7 +271,6 @@ def wrap_logical(paragraph, max_px, font_size):
 
 
 def ar(text, font_size=16, wrap=True, width=None):
-    """نص عربي جاهز للعرض في Label أو Button."""
     if not wrap:
         return "\n".join(shape(l) for l in str(text).split("\n"))
     max_px = width if width else Window.width - dp(40)
@@ -285,9 +282,6 @@ def ar(text, font_size=16, wrap=True, width=None):
 
 
 class ArabicTextInput(TextInput):
-    """حقل إدخال يعرض العربية متصلة ومن اليمين لليسار.
-    النص في .text يبقى منطقيًا، والتشكيل يتم عند الرسم فقط."""
-
     def _create_line_label(self, text, hint=False):
         return super()._create_line_label(shape(text), hint)
 
@@ -295,15 +289,11 @@ class ArabicTextInput(TextInput):
         return super()._get_text_width(shape(text), *args, **kwargs)
 
 
-# ===============================================================
-# خطة الرسالة: الترقيم التلقائي
-# ===============================================================
 def ordinal(n):
     return ORDINALS[n - 1] if 1 <= n <= len(ORDINALS) else str(n)
 
 
 def number_plan(plan):
-    """يعيد قائمة (المستوى، البادئة المرقمة، العنوان)."""
     counters = [0, 0, 0]
     result = []
     for item in plan:
@@ -319,16 +309,12 @@ def number_plan(plan):
 
 
 def plan_text(plan):
-    """الخطة كنص منطقي عادي (للنسخ وللإرسال إلى المشرف)."""
     lines = []
     for lvl, prefix, title in number_plan(plan):
         lines.append("  " * (lvl - 1) + prefix + ": " + title)
     return "\n".join(lines)
 
 
-# ===============================================================
-# المراجع: التنسيق
-# ===============================================================
 def _j(parts, sep="، "):
     return sep.join(p for p in parts if p)
 
@@ -338,7 +324,6 @@ def _end(s):
 
 
 def fmt_arabic(r, foot=False):
-    """النمط العربي الجامعي. foot=True يعطي صيغة الهامش."""
     t = r.get("type", "book")
     a = r.get("author", "")
     ti = r.get("title", "")
@@ -371,7 +356,6 @@ def fmt_arabic(r, foot=False):
 
 
 def fmt_apa(r, foot=False):
-    """نمط APA تقريبي (المؤلف، السنة)."""
     t = r.get("type", "book")
     a = r.get("author", "") or r.get("source", "")
     ti = r.get("title", "")
@@ -390,9 +374,6 @@ def fmt_apa(r, foot=False):
     return " ".join(p for p in pieces if p)
 
 
-# ===============================================================
-# مدقق الاتساق (آلي محلي، لا يستخدم الذكاء الاصطناعي)
-# ===============================================================
 def check_text(text, refs_count):
     t = text
     n = norm_digits(t)
@@ -487,9 +468,6 @@ def parse_date(s):
     return None
 
 
-# ===============================================================
-# معالج الأخطاء أثناء التشغيل: يعرض الخطأ بدل إغلاق التطبيق
-# ===============================================================
 class _Handler(ExceptionHandler):
     def handle_exception(self, inst):
         try:
@@ -503,9 +481,6 @@ class _Handler(ExceptionHandler):
         return ExceptionManager.PASS
 
 
-# ===============================================================
-# التطبيق
-# ===============================================================
 class MushrifApp(App):
 
     TABS = [
@@ -583,6 +558,9 @@ class MushrifApp(App):
         self.ref_type = "book"
         self.current_mode = self.mode_name
         self.current_question = ""
+        self.last_send = 0
+        self.cache = {}
+        self.reveal_event = None
 
         root = BoxLayout(orientation="vertical")
 
@@ -623,9 +601,6 @@ class MushrifApp(App):
 
         return root
 
-    # -----------------------------------------------------------
-    # أدوات بناء الواجهة
-    # -----------------------------------------------------------
     def new_screen(self, name):
         screen = Screen(name=name)
         scroll = ScrollView(do_scroll_x=False)
@@ -686,7 +661,6 @@ class MushrifApp(App):
         return lb
 
     def list_row(self, text, color, on_main, buttons, indent=0, size=15):
-        """صف قائمة: أزرار صغيرة على اليسار وزر رئيسي يحمل النص."""
         btn_w = dp(50)
         avail = (Window.width - dp(20) - indent
                  - len(buttons) * (btn_w + dp(4)) - dp(24))
@@ -723,9 +697,53 @@ class MushrifApp(App):
         return row
 
     def show(self, text):
-        """عرض نص منطقي في منطقة الإجابة (يُشكَّل هنا فقط)."""
+        self._stop_reveal()
+        self.answer_box.clear_widgets()
         self.shown_raw = text
         self.answer.text = ar(text, 16)
+
+    def _stop_reveal(self):
+        if getattr(self, "reveal_event", None):
+            self.reveal_event.cancel()
+            self.reveal_event = None
+
+    def block_widget(self, kind, text):
+        size = 19 if kind == "h" else 16
+        color = GOLD if kind == "h" else WHITE
+        if kind == "b":
+            text = "• " + text
+        lb = Label(
+            text=ar(text, size),
+            size_hint_y=None, halign="right", valign="top",
+            font_size=sp(size), font_name=self.font, color=color,
+        )
+        lb.bind(
+            width=lambda *a: setattr(lb, "text_size", (lb.width, None)),
+            texture_size=lambda *a: setattr(
+                lb, "height", lb.texture_size[1] + dp(6)),
+        )
+        return lb
+
+    def render_answer(self, text):
+        self._stop_reveal()
+        self.answer.text = ""
+        self.answer_box.clear_widgets()
+        self.shown_raw = text
+        blocks = parse_blocks(text) + [("f", FOOTER.strip())]
+        state = {"i": 0}
+
+        def step(dt):
+            if state["i"] >= len(blocks):
+                self.reveal_event = None
+                return False
+            kind, t = blocks[state["i"]]
+            w = self.block_widget(kind, t)
+            if kind == "f":
+                w.color = MUTED
+            self.answer_box.add_widget(w)
+            state["i"] += 1
+
+        self.reveal_event = Clock.schedule_interval(step, 0.15)
 
     def show_check(self, text):
         self.check_raw = text
@@ -740,7 +758,7 @@ class MushrifApp(App):
 
     def on_win_resize(self, *args):
         def redo(dt):
-            if self.shown_raw:
+            if self.shown_raw and not self.answer_box.children:
                 self.show(self.shown_raw)
             if self.check_raw:
                 self.show_check(self.check_raw)
@@ -754,9 +772,6 @@ class MushrifApp(App):
         for k, b in self.tab_buttons.items():
             b.state = "down" if k == key else "normal"
 
-    # -----------------------------------------------------------
-    # شاشة المشرف
-    # -----------------------------------------------------------
     def build_chat_screen(self):
         screen, root = self.new_screen("chat")
 
@@ -818,11 +833,13 @@ class MushrifApp(App):
 
         self.answer = self.out_label()
         root.add_widget(self.answer)
+        self.answer_box = GridLayout(
+            cols=1, size_hint_y=None, spacing=dp(6))
+        self.answer_box.bind(
+            minimum_height=self.answer_box.setter("height"))
+        root.add_widget(self.answer_box)
         return screen
 
-    # -----------------------------------------------------------
-    # شاشة خطة الرسالة
-    # -----------------------------------------------------------
     def build_plan_screen(self):
         screen, root = self.new_screen("plan")
 
@@ -869,9 +886,6 @@ class MushrifApp(App):
         root.add_widget(row)
         return screen
 
-    # -----------------------------------------------------------
-    # شاشة المراجع
-    # -----------------------------------------------------------
     def build_refs_screen(self):
         screen, root = self.new_screen("refs")
 
@@ -937,9 +951,6 @@ class MushrifApp(App):
             "نسخ قائمة المراجع كاملة", self.copy_bibliography, 14))
         return screen
 
-    # -----------------------------------------------------------
-    # شاشة المتابعة
-    # -----------------------------------------------------------
     def build_track_screen(self):
         screen, root = self.new_screen("track")
 
@@ -983,9 +994,6 @@ class MushrifApp(App):
         root.add_widget(self.task_list)
         return screen
 
-    # -----------------------------------------------------------
-    # شاشة التدقيق
-    # -----------------------------------------------------------
     def build_check_screen(self):
         screen, root = self.new_screen("check")
 
@@ -1005,9 +1013,6 @@ class MushrifApp(App):
         root.add_widget(self.check_out)
         return screen
 
-    # -----------------------------------------------------------
-    # التخزين المحلي (نصوص منطقية فقط)
-    # -----------------------------------------------------------
     def load_data(self):
         try:
             with open(self.store_path, "r", encoding="utf-8") as f:
@@ -1043,9 +1048,6 @@ class MushrifApp(App):
         }
         self.save_data()
 
-    # -----------------------------------------------------------
-    # المشرف: الأزرار
-    # -----------------------------------------------------------
     def select_mode(self, name):
         self.mode_name = name
         for n, b in self.mode_buttons.items():
@@ -1126,8 +1128,18 @@ class MushrifApp(App):
             + "\n\nطلب الطالب أو نصه:\n" + (question or "(لا يوجد)")
         )
 
+        wait_left = MIN_GAP - (time.time() - self.last_send)
+        if wait_left > 0:
+            return self.show(
+                "انتظر %d ثوانٍ ثم أعد الإرسال." % (int(wait_left) + 1))
+
         self.current_mode = self.mode_name
         self.current_question = question or topic
+
+        if full_question in self.cache:
+            return self.done(self.cache[full_question], True)
+
+        self.last_send = time.time()
         self.btn.disabled = True
         self.show("جارٍ إرسال الطلب ومعالجته...")
 
@@ -1135,60 +1147,79 @@ class MushrifApp(App):
             target=self.worker, args=(full_question,), daemon=True
         ).start()
 
-    # -----------------------------------------------------------
-    # الاتصال بالخادم
-    # -----------------------------------------------------------
+    def _status(self, text):
+        Clock.schedule_once(lambda dt: self.show(text))
+
     def worker(self, question):
         ok = False
-        try:
-            r = requests.post(
-                API_URL,
-                headers={"Content-Type": "application/json"},
-                json={"question": question},
-                timeout=90,
-                verify=certifi.where() if HAS_CERTIFI else True,
-            )
-            r.encoding = "utf-8"
-
+        result = ""
+        for attempt in range(1, MAX_TRIES + 1):
+            retry_after = None
             try:
-                data = r.json()
-            except Exception:
-                data = {}
+                r = requests.post(
+                    API_URL,
+                    headers={"Content-Type": "application/json"},
+                    json={"question": question},
+                    timeout=90,
+                    verify=certifi.where() if HAS_CERTIFI else True,
+                )
+                r.encoding = "utf-8"
+                try:
+                    data = r.json()
+                except Exception:
+                    data = {}
 
-            if r.status_code == 200:
-                candidates = data.get("candidates", [])
-                if candidates:
-                    parts = (
-                        candidates[0].get("content", {}).get("parts", [])
-                    )
+                if r.status_code == 200:
+                    cands = data.get("candidates", [])
+                    parts = (cands[0].get("content", {}).get("parts", [])
+                             if cands else [])
                     answer = "\n".join(
-                        p.get("text", "") for p in parts if p.get("text")
-                    )
+                        p.get("text", "") for p in parts if p.get("text"))
                     if answer:
-                        result = answer
-                        ok = True
+                        result, ok = answer, True
                     else:
-                        result = "لم يصل رد نصي من الخدمة."
-                else:
-                    result = str(
-                        data.get("error", "لم يصل رد صالح من الخدمة."))
-            else:
+                        result = str(data.get(
+                            "error", "لم يصل رد نصي من الخدمة."))
+                    break
+
                 error = data.get("error", {})
-                if isinstance(error, dict):
-                    detail = error.get("message", str(error))
-                else:
-                    detail = str(error)
+                detail = (error.get("message", str(error))
+                          if isinstance(error, dict) else str(error))
                 result = "خطأ %d: %s" % (r.status_code, detail)
 
-        except Exception as e:
-            result = "تعذّر الاتصال بالخادم:\n" + repr(e)
+                if r.status_code not in RETRY_CODES:
+                    break
+                try:
+                    retry_after = float(r.headers.get("Retry-After", ""))
+                except Exception:
+                    retry_after = None
 
+            except Exception as e:
+                result = "تعذّر الاتصال بالخادم:\n" + repr(e)
+
+            if attempt == MAX_TRIES:
+                result = ("الخدمة مشغولة حاليًا بسبب كثرة الطلبات. "
+                          "انتظر دقيقة ثم أعد المحاولة.")
+                break
+
+            wait = int(retry_after or (3 * 2 ** (attempt - 1)))
+            wait = min(wait, 60)
+            for s in range(wait, 0, -1):
+                self._status(
+                    "الخادم مشغول. إعادة المحاولة بعد %d ثانية "
+                    "(المحاولة %d من %d)" % (s, attempt + 1, MAX_TRIES))
+                time.sleep(1)
+            self._status("جارٍ إعادة المحاولة...")
+
+        if ok:
+            self.cache[question] = result
         Clock.schedule_once(lambda dt: self.done(result, ok))
 
     def done(self, text, ok):
         self.btn.disabled = False
         if ok:
-            text = clean_markdown(text)
+            raw = text
+            text = clean_markdown(raw)
             self.last_answer = text
             history = self.data.setdefault("history", [])
             history.append({
@@ -1199,13 +1230,10 @@ class MushrifApp(App):
             })
             self.data["history"] = history[-HISTORY_LIMIT:]
             self.save_data()
-            self.show(text + FOOTER)
+            self.render_answer(raw)
         else:
             self.show(text)
 
-    # -----------------------------------------------------------
-    # خطة الرسالة: العمليات
-    # -----------------------------------------------------------
     def set_level(self, lvl):
         self.level = lvl
         for k, b in self.level_buttons.items():
@@ -1311,9 +1339,6 @@ class MushrifApp(App):
         self.select_mode("بناء خطة")
         self.go_tab("chat")
 
-    # -----------------------------------------------------------
-    # المراجع: العمليات
-    # -----------------------------------------------------------
     def fmt(self, ref, foot=False):
         if self.data.get("style", "arabic") == "apa":
             return fmt_apa(ref, foot)
@@ -1397,9 +1422,6 @@ class MushrifApp(App):
         self.ref_status.text = ar(
             "تم نسخ قائمة المراجع مرتبة هجائيًا", 13, wrap=False)
 
-    # -----------------------------------------------------------
-    # المتابعة: العمليات
-    # -----------------------------------------------------------
     def save_deadline(self, *args):
         self.save_project()
         self.refresh_tasks()
@@ -1446,7 +1468,6 @@ class MushrifApp(App):
     def refresh_tasks(self):
         if not hasattr(self, "task_list"):
             return
-        # العد التنازلي
         dl = parse_date(self.deadline.text)
         if dl:
             days = (dl - date.today()).days
@@ -1493,9 +1514,6 @@ class MushrifApp(App):
                 [("حذف", lambda inst, idx=i: self.delete_task(idx))],
             ))
 
-    # -----------------------------------------------------------
-    # التدقيق
-    # -----------------------------------------------------------
     def run_check(self, *args):
         text = sanitize_input(self.check_input.text)
         if not text:
