@@ -1,3 +1,4 @@
+
 name: Build Android APK
 
 on:
@@ -7,7 +8,7 @@ on:
       - main
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -22,12 +23,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Set up Java
+      - name: Setup Java
         uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -36,7 +37,6 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-
           sudo apt-get install -y \
             git zip unzip curl wget ant \
             build-essential \
@@ -61,23 +61,18 @@ jobs:
           java -version
           javac -version
           ant -version
-
           echo "ANT executable:"
           command -v ant
-
           echo "ANT directory:"
           ls -la /usr/bin/ant
-
           test -x /usr/bin/ant
 
       - name: Install Buildozer
         run: |
           python -m pip install --upgrade pip setuptools wheel
-
           python -m pip install \
             buildozer==1.5.0 \
             cython==0.29.36
-
           buildozer --version
           cython --version
 
@@ -132,7 +127,6 @@ jobs:
           rm -rf .buildozer
           rm -rf "$HOME/.buildozer"
           rm -rf bin
-
           mkdir -p bin
 
       - name: Download Arabic font
@@ -194,20 +188,15 @@ jobs:
       - name: Build Android APK
         run: |
           set -o pipefail
-
           buildozer -v android debug 2>&1 | tee build.log
 
       - name: Verify APK
         if: success()
         run: |
           set -e
-
           echo "Checking generated APK..."
-
           ls -lh bin/*.apk
-
           test -n "$(find bin -maxdepth 1 -name '*.apk' -print -quit)"
-
           echo "APK generated successfully"
 
       - name: Upload APK
@@ -218,6 +207,19 @@ jobs:
           path: bin/*.apk
           if-no-files-found: error
           retention-days: 14
+
+      - name: Publish APK Release
+        if: success()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: Mushrif Android v1.0.${{ github.run_number }}
+          body: |
+            تطبيق مشرف - نسخة أندرويد.
+            حمّل ملف APK وثبّته على هاتفك.
+          files: bin/*.apk
+          fail_on_unmatched_files: true
+          make_latest: true
 
       - name: Upload build logs
         if: always()
