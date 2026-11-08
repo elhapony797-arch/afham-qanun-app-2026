@@ -752,6 +752,7 @@ class MushrifApp(App):
     def show_error(self, tb):
         try:
             self.btn.disabled = False
+            self.btn_v.disabled = False
         except Exception:
             pass
         self.show("حدث خطأ غير متوقع (أرسل هذا النص للمطور):\n" + tb[-900:])
@@ -821,8 +822,16 @@ class MushrifApp(App):
             "اكتب طلبك أو الصق النص المراد مراجعته", True, dp(150))
         root.add_widget(self.q_input)
 
-        self.btn = self.button("أرسل إلى المشرف", self.ask, 18, dp(56))
+        self.code_input = self.field(
+            "كود الاشتراك (للبحث الموثق)", False, dp(48),
+            project.get("code", ""))
+        root.add_widget(self.code_input)
+
+        self.btn = self.button("إجابة سريعة", self.ask, 18, dp(56))
         root.add_widget(self.btn)
+        self.btn_v = self.button(
+            "بحث موثق (للمشتركين)", self.ask_verified, 18, dp(56))
+        root.add_widget(self.btn_v)
 
         row = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(6))
         row.add_widget(self.button(
@@ -1045,6 +1054,7 @@ class MushrifApp(App):
             "country": sanitize_input(self.country.text),
             "compare": sanitize_input(self.compare.text),
             "deadline": sanitize_input(self.deadline.text),
+            "code": sanitize_input(self.code_input.text),
         }
         self.save_data()
 
@@ -1074,7 +1084,10 @@ class MushrifApp(App):
             ))
         self.show("آخر الطلبات:\n\n" + "\n".join(parts))
 
-    def ask(self, *args):
+    def ask_verified(self, *args):
+        self.ask(verified=True)
+
+    def ask(self, *args, verified=False):
         if not HAS_REQUESTS:
             return self.show("مكتبة requests غير مثبتة، لا يمكن الاتصال.")
 
@@ -1083,6 +1096,10 @@ class MushrifApp(App):
 
         if not question and not topic:
             return self.show("اكتب موضوع رسالتك أو طلبك أولًا.")
+
+        code = sanitize_input(self.code_input.text)
+        if verified and not code:
+            return self.show("أدخل كود الاشتراك أولًا للبحث الموثق.")
 
         self.save_project()
 
@@ -1136,30 +1153,38 @@ class MushrifApp(App):
         self.current_mode = self.mode_name
         self.current_question = question or topic
 
-        if full_question in self.cache:
-            return self.done(self.cache[full_question], True)
+        cache_key = ("v" if verified else "f") + full_question
+        if cache_key in self.cache:
+            return self.done(self.cache[cache_key], True)
 
         self.last_send = time.time()
         self.btn.disabled = True
+        self.btn_v.disabled = True
         self.show("جارٍ إرسال الطلب ومعالجته...")
 
         threading.Thread(
-            target=self.worker, args=(full_question,), daemon=True
+            target=self.worker,
+            args=(full_question, verified, code, cache_key),
+            daemon=True
         ).start()
 
     def _status(self, text):
         Clock.schedule_once(lambda dt: self.show(text))
 
-    def worker(self, question):
+    def worker(self, question, verified=False, code="", cache_key=None):
         ok = False
         result = ""
         for attempt in range(1, MAX_TRIES + 1):
             retry_after = None
             try:
+                payload = {"question": question}
+                if verified:
+                    payload["mode"] = "verified"
+                    payload["code"] = code
                 r = requests.post(
                     API_URL,
                     headers={"Content-Type": "application/json"},
-                    json={"question": question},
+                    json=payload,
                     timeout=90,
                     verify=certifi.where() if HAS_CERTIFI else True,
                 )
@@ -1211,12 +1236,13 @@ class MushrifApp(App):
                 time.sleep(1)
             self._status("جارٍ إعادة المحاولة...")
 
-        if ok:
-            self.cache[question] = result
+        if ok and cache_key:
+            self.cache[cache_key] = result
         Clock.schedule_once(lambda dt: self.done(result, ok))
 
     def done(self, text, ok):
         self.btn.disabled = False
+        self.btn_v.disabled = False
         if ok:
             raw = text
             text = clean_markdown(raw)
