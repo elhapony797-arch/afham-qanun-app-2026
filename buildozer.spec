@@ -1,7 +1,6 @@
-
 [app]
 
-title = Alhabouni
+title = Mushrif
 package.name = alhabouni2
 package.domain = org.elhapony
 
